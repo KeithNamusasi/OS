@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life OS</title>
+    <!-- Google Fonts for modern typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Link to our CSS file -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <div class="app-container">
+        
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h2><i class="fa-solid fa-infinity"></i> Life OS</h2>
+            </div>
+            
+            <ul class="nav-links">
+                <li class="nav-item active" data-target="dashboard-view">
+                    <i class="fa-solid fa-house"></i> Dashboard
+                </li>
+                <li class="nav-item" data-target="tasks-view">
+                    <i class="fa-solid fa-list-check"></i> Tasks
+                </li>
+                <li class="nav-item" data-target="ai-view">
+                    <i class="fa-solid fa-robot"></i> AI Assistant
+                </li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- Dashboard View -->
+            <section id="dashboard-view" class="view-section active">
+                <header>
+                    <h1>Dashboard</h1>
+                    <p class="subtitle">Welcome back. Here is your overview.</p>
+                </header>
+                
+                <div class="dashboard-grid">
+                    <!-- Date/Time Card -->
+                    <div class="card glass-card top-card">
+                        <div class="time-display">
+                            <h2 id="current-time">12:00 PM</h2>
+                            <p id="current-date">Monday, January 1st</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Stats Card -->
+                    <div class="card glass-card stats-card">
+                        <h3>Task Progress</h3>
+                        <div class="stat-circle">
+                            <span id="task-completion-text">0%</span>
+                        </div>
+                        <p id="task-summary-text">0 of 0 tasks completed</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tasks View -->
+            <section id="tasks-view" class="view-section">
+                <header>
+                    <h1>Tasks</h1>
+                    <p class="subtitle">Manage your to-dos efficiently.</p>
+                </header>
+                
+                <div class="tasks-container glass-card">
+                    <form id="add-task-form">
+                        <input type="text" id="new-task-input" placeholder="What needs to be done?" required autocomplete="off">
+                        <button type="submit" class="btn primary-btn"><i class="fa-solid fa-plus"></i></button>
+                    </form>
+                    
+                    <ul id="tasks-list" class="tasks-list">
+                        <!-- Tasks will be loaded here dynamically -->
+                        <div class="loading-spinner"></div>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- AI Assistant View -->
+            <section id="ai-view" class="view-section">
+                <header>
+                    <h1>Nova AI</h1>
+                    <p class="subtitle">Your personal Gemini-powered assistant.</p>
+                </header>
+                
+                <!-- Setup Screen (shown until API key is provided) -->
+                <div id="ai-setup-container" class="glass-card chat-setup">
+                    <i class="fa-solid fa-robot big-icon"></i>
+                    <h2>Connect to Gemini</h2>
+                    <p>To use Nova, you need to provide your Google Gemini API key.</p>
+                    <p class="small-text">You can get one free from <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>.</p>
+                    
+                    <form id="api-key-form">
+                        <input type="password" id="api-key-input" placeholder="Paste your API key here..." required>
+                        <button type="submit" class="btn primary-btn" id="api-key-submit">Connect AI</button>
+                    </form>
+                    <p id="api-key-status" class="status-msg"></p>
+                </div>
+                
+                <!-- Chat Screen (hidden initially) -->
+                <div id="ai-chat-container" class="glass-card chat-interface" style="display: none;">
+                    <div class="chat-history" id="chat-history">
+                        <div class="message ai-message">
+                            <div class="avatar"><i class="fa-solid fa-robot"></i></div>
+                            <div class="bubble">Hello! I am Nova, your personal assistant. How can I help you today?</div>
+                        </div>
+                        <!-- Messages dynamically added here -->
+                    </div>
+                    
+                    <form id="chat-form" class="chat-input-area">
+                        <input type="text" id="chat-input" placeholder="Ask Nova anything..." required autocomplete="off">
+                        <button type="submit" class="btn primary-btn" id="send-chat-btn"><i class="fa-solid fa-paper-plane"></i></button>
+                    </form>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Link to our JavaScript file -->
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
