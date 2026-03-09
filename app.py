@@ -15,23 +15,26 @@ CORS(app)
 # ==========================================
 # MongoDB Initialization
 # ==========================================
-MONGO_URI = os.getenv("MONGO_URI")
+# On Render, MONGO_URI should be set in the 'Environment' tab
+MONGO_URI = os.environ.get("MONGO_URI")
 
 try:
-    if not MONGO_URI or MONGO_URI == "mongodb+srv://<username>:<password>@cluster0.mongodb.net/":
-        print("⚠️ Warning: MONGO_URI is not set properly in .env")
-        # Fallback to a local test db or simply allow it to fail gracefully when accessed
+    if not MONGO_URI:
+        print("❌ Error: MONGO_URI environment variable is missing!")
+        print("Please add 'MONGO_URI' to your Render environment variables.")
+        client = MongoClient('mongodb://localhost:27017/')
+    elif "username" in MONGO_URI and "password" in MONGO_URI:
+        print("⚠️ Warning: MONGO_URI still contains placeholder '<username>' or '<password>'!")
         client = MongoClient('mongodb://localhost:27017/')
     else:
+        # Success - attempt connection
         client = MongoClient(MONGO_URI)
+        client.admin.command('ping')
+        print("Successfully connected to MongoDB Atlas!")
         
     db = client.life_os_db
     tasks_collection = db.tasks
     settings_collection = db.settings
-    
-    # Just a quick check to see if we can connect
-    client.admin.command('ping')
-    print("Successfully connected to MongoDB!")
     
 except Exception as e:
     print(f"Failed to connect to MongoDB: {e}")
