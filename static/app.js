@@ -5,6 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initClock();
     initNavigation();
     initTasks();
+    initNotes();
+    initPomodoro();
     initAIChat();
 });
 

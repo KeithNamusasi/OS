@@ -30,6 +30,12 @@
                 <li class="nav-item" data-target="tasks-view">
                     <i class="fa-solid fa-list-check"></i> Tasks
                 </li>
+                <li class="nav-item" data-target="notes-view">
+                    <i class="fa-solid fa-sticky-note"></i> Notes
+                </li>
+                <li class="nav-item" data-target="pomodoro-view">
+                    <i class="fa-solid fa-stopwatch"></i> Pomodoro
+                </li>
                 <li class="nav-item" data-target="ai-view">
                     <i class="fa-solid fa-robot"></i> AI Assistant
                 </li>
@@ -74,10 +80,44 @@
                 </header>
                 
                 <div class="tasks-container glass-card">
+                    <!-- AI Task Creation -->
+                    <div class="ai-task-creation">
+                        <button id="ai-task-btn" class="btn ai-btn"><i class="fa-solid fa-wand-magic-sparkles"></i> Create Task with AI</button>
+                        <div id="ai-task-form" class="ai-task-form" style="display: none;">
+                            <input type="text" id="ai-task-prompt" placeholder="Describe your task in natural language... (e.g., 'Buy groceries tomorrow, high priority')" required autocomplete="off">
+                            <div class="ai-task-actions">
+                                <button id="ai-task-submit" class="btn primary-btn"><i class="fa-solid fa-paper-plane"></i> Create</button>
+                                <button id="ai-task-cancel" class="btn outline-btn">Cancel</button>
+                            </div>
+                            <p id="ai-task-status" class="status-msg"></p>
+                        </div>
+                    </div>
+                    
                     <form id="add-task-form">
                         <input type="text" id="new-task-input" placeholder="What needs to be done?" required autocomplete="off">
+                        <select id="task-category" class="task-select">
+                            <option value="general">General</option>
+                            <option value="work">Work</option>
+                            <option value="personal">Personal</option>
+                            <option value="health">Health</option>
+                            <option value="learning">Learning</option>
+                            <option value="shopping">Shopping</option>
+                        </select>
+                        <select id="task-priority" class="task-select">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                        <input type="date" id="task-due-date" class="task-date">
                         <button type="submit" class="btn primary-btn"><i class="fa-solid fa-plus"></i></button>
                     </form>
+                    
+                    <!-- Task Filters -->
+                    <div class="task-filters">
+                        <button class="filter-btn active" data-filter="all">All</button>
+                        <button class="filter-btn" data-filter="active">Active</button>
+                        <button class="filter-btn" data-filter="completed">Completed</button>
+                    </div>
                     
                     <ul id="tasks-list" class="tasks-list">
                         <!-- Tasks will be loaded here dynamically -->
@@ -121,6 +161,63 @@
                         <input type="text" id="chat-input" placeholder="Ask Nova anything..." required autocomplete="off">
                         <button type="submit" class="btn primary-btn" id="send-chat-btn"><i class="fa-solid fa-paper-plane"></i></button>
                     </form>
+                </div>
+            </section>
+
+            <!-- Notes View -->
+            <section id="notes-view" class="view-section">
+                <header>
+                    <h1>Notes</h1>
+                    <p class="subtitle">Jot down your thoughts and ideas.</p>
+                </header>
+                
+                <div class="notes-container">
+                    <form id="add-note-form" class="note-form">
+                        <input type="text" id="new-note-title" placeholder="Note title..." required autocomplete="off">
+                        <textarea id="new-note-content" placeholder="Write your note here..." rows="3"></textarea>
+                        <div class="note-form-footer">
+                            <input type="color" id="note-color" value="#6366f1" class="color-picker">
+                            <button type="submit" class="btn primary-btn"><i class="fa-solid fa-plus"></i> Add Note</button>
+                        </div>
+                    </form>
+                    
+                    <div id="notes-list" class="notes-grid">
+                        <!-- Notes will be loaded here dynamically -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Pomodoro View -->
+            <section id="pomodoro-view" class="view-section">
+                <header>
+                    <h1>Pomodoro Timer</h1>
+                    <p class="subtitle">Stay focused with the Pomodoro technique.</p>
+                </header>
+                
+                <div class="pomodoro-container glass-card">
+                    <div class="timer-display">
+                        <span id="pomodoro-time">25:00</span>
+                    </div>
+                    <div class="timer-modes">
+                        <button class="timer-mode-btn active" data-mode="work" data-duration="25">Work</button>
+                        <button class="timer-mode-btn" data-mode="short" data-duration="5">Short Break</button>
+                        <button class="timer-mode-btn" data-mode="long" data-duration="15">Long Break</button>
+                    </div>
+                    <div class="timer-controls">
+                        <button id="pomodoro-start" class="btn primary-btn"><i class="fa-solid fa-play"></i> Start</button>
+                        <button id="pomodoro-pause" class="btn secondary-btn" style="display: none;"><i class="fa-solid fa-pause"></i> Pause</button>
+                        <button id="pomodoro-reset" class="btn outline-btn"><i class="fa-solid fa-rotate-right"></i> Reset</button>
+                    </div>
+                    <div class="pomodoro-stats">
+                        <div class="stat-item">
+                            <span id="sessions-completed">0</span>
+                            <label>Sessions</label>
+                        </div>
+                        <div class="stat-item">
+                            <span id="total-focus-time">0</span>
+                            <label>Minutes Focused</label>
+                        </div>
+                    </div>
                 </div>
             </section>
 

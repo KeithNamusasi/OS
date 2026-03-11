@@ -35,6 +35,7 @@ try:
     db = client.life_os_db
     tasks_collection = db.tasks
     settings_collection = db.settings
+    notes_collection = db.notes
     
 except Exception as e:
     print(f"Failed to connect to MongoDB: {e}")
@@ -111,14 +112,23 @@ def create_task():
     try:
         new_task = {
             "title": data['title'],
-            "completed": False
+            "completed": False,
+            "category": data.get('category', 'general'),
+            "priority": data.get('priority', 'medium'),
+            "due_date": data.get('due_date', None),
+            "description": data.get('description', ''),
+            "created_at": data.get('created_at', None)
         }
         result = tasks_collection.insert_one(new_task)
         
         return jsonify({
             "id": str(result.inserted_id),
             "title": new_task['title'],
-            "completed": False
+            "completed": False,
+            "category": new_task['category'],
+            "priority": new_task['priority'],
+            "due_date": new_task['due_date'],
+            "description": new_task['description']
         }), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -132,6 +142,14 @@ def update_task(task_id):
         update_fields['completed'] = bool(data['completed'])
     if 'title' in data:
         update_fields['title'] = data['title']
+    if 'category' in data:
+        update_fields['category'] = data['category']
+    if 'priority' in data:
+        update_fields['priority'] = data['priority']
+    if 'due_date' in data:
+        update_fields['due_date'] = data['due_date']
+    if 'description' in data:
+        update_fields['description'] = data['description']
         
     if not update_fields:
         return jsonify({"error": "No update fields provided"}), 400
@@ -197,6 +215,175 @@ def chat():
             return jsonify({"error": str(e)}), 500
             
     return jsonify({"error": "Missing 'message' or 'apiKey' field"}), 400
+
+
+# ==========================================
+# API Routes: Notes
+# ==========================================
+@app.route('/api/notes', methods=['GET'])
+def get_notes():
+    try:
+        notes = list(notes_collection.find({}).sort("updated_at", -1))
+        for note in notes:
+            note['id'] = str(note['_id'])
+            del note['_id']
+        return jsonify(notes)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/notes', methods=['POST'])
+def create_note():
+    data = request.json
+    if not data or 'title' not in data:
+        return jsonify({"error": "Title is required"}), 400
+        
+    try:
+        new_note = {
+            "title": data['title'],
+            "content": data.get('content', ''),
+            "color": data.get('color', '#6366f1'),
+            "created_at": data.get('created_at', None),
+            "updated_at": data.get('updated_at', None)
+        }
+        result = notes_collection.insert_one(new_note)
+        
+        return jsonify({
+            "id": str(result.inserted_id),
+            "title": new_note['title'],
+            "content": new_note['content'],
+            "color": new_note['color']
+        }), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/notes/<note_id>', methods=['PATCH'])
+def update_note(note_id):
+    data = request.json
+    update_fields = {}
+    
+    if 'title' in data:
+        update_fields['title'] = data['title']
+    if 'content' in data:
+        update_fields['content'] = data['content']
+    if 'color' in data:
+        update_fields['color'] = data['color']
+        
+    if not update_fields:
+        return jsonify({"error": "No update fields provided"}), 400
+        
+    try:
+        result = notes_collection.update_one(
+            {"_id": ObjectId(note_id)},
+            {"$set": update_fields}
+        )
+        
+        if result.matched_count == 0:
+            return jsonify({"error": "Note not found"}), 404
+            
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/notes/<note_id>', methods=['DELETE'])
+def delete_note(note_id):
+    try:
+        result = notes_collection.delete_one({"_id": ObjectId(note_id)})
+        
+        if result.deleted_count == 0:
+            return jsonify({"error": "Note not found"}), 404
+            
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ==========================================
+# AI Task Creation from Natural Language
+# ==========================================
+@app.route('/api/ai/create-task', methods=['POST'])
+def ai_create_task():
+    global ai_chat_session
+    data = request.json
+    
+    if not data or 'prompt' not in data:
+        return jsonify({"error": "Prompt is required"}), 400
+        
+    if ai_chat_session is None:
+        return jsonify({"error": "AI not initialized. Please provide an API key first."}), 401
+    
+    prompt = data['prompt']
+    
+    # Create a prompt to extract task details
+    extraction_prompt = f"""Analyze this request and extract task details. Return ONLY a JSON object with these fields (no other text):
+- title: short task title
+- category: one of [general, work, personal, health, learning, shopping] (default: general)
+- priority: one of [low, medium, high] (default: medium)
+- due_date: ISO date string if mentioned (e.g., "2024-12-25"), otherwise null
+- description: brief description if mentioned, otherwise empty string
+
+Request: {prompt}
+
+JSON:"""
+
+    try:
+        response = ai_chat_session.send_message(extraction_prompt)
+        import json
+        import re
+        
+        # Extract JSON from response
+        text = response.text
+        json_match = re.search(r'\{.*\}', text, re.DOTALL)
+        
+        if json_match:
+            task_data = json.loads(json_match.group())
+            
+            # Create the task in database
+            new_task = {
+                "title": task_data.get('title', prompt),
+                "completed": False,
+                "category": task_data.get('category', 'general'),
+                "priority": task_data.get('priority', 'medium'),
+                "due_date": task_data.get('due_date'),
+                "description": task_data.get('description', ''),
+                "created_at": data.get('created_at', None)
+            }
+            result = tasks_collection.insert_one(new_task)
+            
+            return jsonify({
+                "success": True,
+                "task": {
+                    "id": str(result.inserted_id),
+                    "title": new_task['title'],
+                    "category": new_task['category'],
+                    "priority": new_task['priority'],
+                    "due_date": new_task['due_date'],
+                    "description": new_task['description']
+                }
+            })
+        else:
+            # Fallback: create simple task
+            new_task = {
+                "title": prompt,
+                "completed": False,
+                "category": "general",
+                "priority": "medium",
+                "due_date": None,
+                "description": ""
+            }
+            result = tasks_collection.insert_one(new_task)
+            
+            return jsonify({
+                "success": True,
+                "task": {
+                    "id": str(result.inserted_id),
+                    "title": new_task['title'],
+                    "category": new_task['category'],
+                    "priority": new_task['priority']
+                }
+            })
+            
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':
