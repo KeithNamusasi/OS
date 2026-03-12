@@ -87,6 +87,66 @@ function initTasks() {
             console.error('Error adding task:', error);
         }
     });
+    
+    // AI Task Creation
+    const aiTaskBtn = document.getElementById('ai-task-btn');
+    const aiTaskForm = document.getElementById('ai-task-form');
+    const aiTaskPrompt = document.getElementById('ai-task-prompt');
+    const aiTaskSubmit = document.getElementById('ai-task-submit');
+    const aiTaskCancel = document.getElementById('ai-task-cancel');
+    const aiTaskStatus = document.getElementById('ai-task-status');
+    
+    aiTaskBtn.addEventListener('click', () => {
+        aiTaskForm.style.display = 'block';
+        aiTaskBtn.style.display = 'none';
+        aiTaskPrompt.focus();
+    });
+    
+    aiTaskCancel.addEventListener('click', () => {
+        aiTaskForm.style.display = 'none';
+        aiTaskBtn.style.display = 'inline-block';
+        aiTaskPrompt.value = '';
+        aiTaskStatus.textContent = '';
+    });
+    
+    aiTaskSubmit.addEventListener('click', async () => {
+        const prompt = aiTaskPrompt.value.trim();
+        if (!prompt) return;
+        
+        aiTaskSubmit.disabled = true;
+        aiTaskSubmit.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating...';
+        aiTaskStatus.textContent = '';
+        
+        try {
+            const response = await fetch('/api/ai/create-task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok && data.success) {
+                aiTaskStatus.textContent = `Task "${data.task.title}" created!`;
+                aiTaskStatus.style.color = 'var(--success)';
+                setTimeout(() => {
+                    aiTaskForm.style.display = 'none';
+                    aiTaskBtn.style.display = 'inline-block';
+                    aiTaskPrompt.value = '';
+                    aiTaskStatus.textContent = '';
+                }, 1500);
+                fetchTasks();
+            } else {
+                throw new Error(data.error || 'Failed to create task');
+            }
+        } catch (error) {
+            aiTaskStatus.textContent = error.message;
+            aiTaskStatus.style.color = 'var(--danger)';
+        } finally {
+            aiTaskSubmit.disabled = false;
+            aiTaskSubmit.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Create';
+        }
+    });
 }
 
 async function fetchTasks() {
@@ -163,6 +223,241 @@ function updateTaskStats(tasks) {
     
     document.getElementById('task-completion-text').textContent = `${percentage}%`;
     document.getElementById('task-summary-text').textContent = `${completed} of ${total} tasks completed`;
+}
+
+// =========================================
+// Notes Functionality
+// =========================================
+function initNotes() {
+    fetchNotes();
+
+    const addNoteForm = document.getElementById('add-note-form');
+
+    addNoteForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const titleInput = document.getElementById('new-note-title');
+        const contentInput = document.getElementById('new-note-content');
+        const colorInput = document.getElementById('note-color');
+        
+        const title = titleInput.value.trim();
+        if (!title) return;
+
+        try {
+            const response = await fetch('/api/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title,
+                    content: contentInput.value,
+                    color: colorInput.value
+                })
+            });
+            
+            if (response.ok) {
+                titleInput.value = '';
+                contentInput.value = '';
+                colorInput.value = '#6366f1';
+                fetchNotes();
+            }
+        } catch (error) {
+            console.error('Error adding note:', error);
+        }
+    });
+}
+
+async function fetchNotes() {
+    const notesList = document.getElementById('notes-list');
+    
+    try {
+        const response = await fetch('/api/notes');
+        const notes = await response.json();
+        
+        notesList.innerHTML = '';
+        
+        if (notes.length === 0) {
+            notesList.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 20px;">No notes yet. Create your first note!</p>';
+        } else {
+            notes.forEach(note => {
+                const noteCard = document.createElement('div');
+                noteCard.className = 'note-card';
+                noteCard.style.borderLeftColor = note.color;
+                
+                noteCard.innerHTML = `
+                    <div class="note-header">
+                        <h3 class="note-title">${escapeHtml(note.title)}</h3>
+                        <div class="note-actions">
+                            <button class="note-edit-btn" data-id="${note.id}"><i class="fa-solid fa-pen"></i></button>
+                            <button class="note-delete-btn" data-id="${note.id}"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </div>
+                    <p class="note-content">${escapeHtml(note.content) || 'No content'}</p>
+                `;
+                
+                // Delete note
+                noteCard.querySelector('.note-delete-btn').addEventListener('click', () => deleteNote(note.id));
+                
+                // Edit note (inline)
+                noteCard.querySelector('.note-edit-btn').addEventListener('click', () => editNote(note));
+                
+                notesList.appendChild(noteCard);
+            });
+        }
+        
+    } catch (error) {
+        console.error('Error fetching notes:', error);
+        notesList.innerHTML = '<p style="color: var(--danger);">Failed to load notes.</p>';
+    }
+}
+
+async function deleteNote(id) {
+    try {
+        const response = await fetch(`/api/notes/${id}`, { method: 'DELETE' });
+        if (response.ok) fetchNotes();
+    } catch (error) {
+        console.error('Error deleting note:', error);
+    }
+}
+
+function editNote(note) {
+    const noteCard = document.querySelector(`.note-card`);
+    const title = prompt('Edit title:', note.title);
+    if (title === null) return;
+    
+    const content = prompt('Edit content:', note.content);
+    
+    fetch(`/api/notes/${note.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content })
+    }).then(res => {
+        if (res.ok) fetchNotes();
+    });
+}
+
+// =========================================
+// Pomodoro Timer Functionality
+// =========================================
+function initPomodoro() {
+    const timeDisplay = document.getElementById('pomodoro-time');
+    const startBtn = document.getElementById('pomodoro-start');
+    const pauseBtn = document.getElementById('pomodoro-pause');
+    const resetBtn = document.getElementById('pomodoro-reset');
+    const modeBtns = document.querySelectorAll('.timer-mode-btn');
+    
+    let timeLeft = 25 * 60; // 25 minutes in seconds
+    let timerInterval = null;
+    let isRunning = false;
+    let currentMode = 'work';
+    
+    let sessionsCompleted = 0;
+    let totalFocusTime = 0;
+    
+    function updateDisplay() {
+        const minutes = Math.floor(timeLeft / 60);
+        const seconds = timeLeft % 60;
+        timeDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        document.title = `${timeDisplay.textContent} - Pomodoro`;
+    }
+    
+    function startTimer() {
+        if (isRunning) return;
+        
+        isRunning = true;
+        startBtn.style.display = 'none';
+        pauseBtn.style.display = 'inline-block';
+        
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            updateDisplay();
+            
+            if (timeLeft <= 0) {
+                clearInterval(timerInterval);
+                isRunning = false;
+                
+                // Play notification sound
+                playNotificationSound();
+                
+                if (currentMode === 'work') {
+                    sessionsCompleted++;
+                    totalFocusTime += 25;
+                    document.getElementById('sessions-completed').textContent = sessionsCompleted;
+                    document.getElementById('total-focus-time').textContent = totalFocusTime;
+                    alert('Great job! Time for a break.');
+                } else {
+                    alert('Break is over! Ready to focus?');
+                }
+                
+                startBtn.style.display = 'inline-block';
+                pauseBtn.style.display = 'none';
+                
+                // Reset to current mode duration
+                const modeBtn = document.querySelector(`.timer-mode-btn[data-mode="${currentMode}"]`);
+                if (modeBtn) {
+                    timeLeft = parseInt(modeBtn.dataset.duration) * 60;
+                }
+                updateDisplay();
+            }
+        }, 1000);
+    }
+    
+    function pauseTimer() {
+        clearInterval(timerInterval);
+        isRunning = false;
+        startBtn.style.display = 'inline-block';
+        pauseBtn.style.display = 'none';
+    }
+    
+    function resetTimer() {
+        pauseTimer();
+        const modeBtn = document.querySelector(`.timer-mode-btn[data-mode="${currentMode}"]`);
+        if (modeBtn) {
+            timeLeft = parseInt(modeBtn.dataset.duration) * 60;
+        }
+        updateDisplay();
+    }
+    
+    function playNotificationSound() {
+        // Create a simple beep using Web Audio API
+        try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+        } catch (e) {
+            console.log('Audio not supported');
+        }
+    }
+    
+    startBtn.addEventListener('click', startTimer);
+    pauseBtn.addEventListener('click', pauseTimer);
+    resetBtn.addEventListener('click', resetTimer);
+    
+    modeBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (isRunning) pauseTimer();
+            
+            modeBtns.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            currentMode = btn.dataset.mode;
+            timeLeft = parseInt(btn.dataset.duration) * 60;
+            updateDisplay();
+        });
+    });
+    
+    updateDisplay();
 }
 
 // =========================================

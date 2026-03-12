@@ -1,9 +1,8 @@
 import os
+import sqlite3
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from google import genai
-from pymongo import MongoClient
-from bson.objectid import ObjectId
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -12,44 +11,79 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-# ==========================================
-# MongoDB Initialization
-# ==========================================
-# On Render, MONGO_URI should be set in the 'Environment' tab
-MONGO_URI = os.environ.get("MONGO_URI")
+# Database configuration
+DB_PATH = os.path.join(os.path.dirname(__file__), 'life_os.db')
 
-try:
-    if not MONGO_URI:
-        print("❌ Error: MONGO_URI environment variable is missing!")
-        print("Please add 'MONGO_URI' to your Render environment variables.")
-        client = MongoClient('mongodb://localhost:27017/')
-    elif "username" in MONGO_URI and "password" in MONGO_URI:
-        print("⚠️ Warning: MONGO_URI still contains placeholder '<username>' or '<password>'!")
-        client = MongoClient('mongodb://localhost:27017/')
-    else:
-        # Success - attempt connection
-        client = MongoClient(MONGO_URI)
-        client.admin.command('ping')
-        print("Successfully connected to MongoDB Atlas!")
-        
-    db = client.life_os_db
-    tasks_collection = db.tasks
-    settings_collection = db.settings
-    notes_collection = db.notes
+# ==========================================
+# SQLite Database Initialization
+# ==========================================
+def init_db():
+    """Initialize the SQLite database with required tables."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
     
-except Exception as e:
-    print(f"Failed to connect to MongoDB: {e}")
+    # Create tasks table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            completed BOOLEAN DEFAULT 0,
+            category TEXT DEFAULT 'general',
+            priority TEXT DEFAULT 'medium',
+            due_date TEXT,
+            description TEXT DEFAULT '',
+            created_at TEXT
+        )
+    ''')
+    
+    # Create notes table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            content TEXT DEFAULT '',
+            color TEXT DEFAULT '#6366f1',
+            created_at TEXT,
+            updated_at TEXT
+        )
+    ''')
+    
+    # Create settings table (for storing API key)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    print("SQLite database initialized successfully!")
+
+# Initialize database on startup
+init_db()
+
+# Database helper functions
+def get_db_connection():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 ai_client = None
 ai_chat_session = None
 
-# Initialize the AI if we already have the key saved in MongoDB
+# Initialize the AI if we already have the key saved in database
 def auto_init_ai():
     try:
-        key_doc = settings_collection.find_one({"_id": "gemini_api_key"})
-        if key_doc and "value" in key_doc:
-            init_ai(key_doc["value"], save_to_db=False)
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM settings WHERE key = ?", ("gemini_api_key",))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            init_ai(row[0], save_to_db=False)
     except Exception as e:
         print(f"Could not auto-init AI: {e}")
 
@@ -68,11 +102,12 @@ def init_ai(api_key, save_to_db=True):
         
         # Save key to database permanently
         if save_to_db:
-            settings_collection.update_one(
-                {"_id": "gemini_api_key"},
-                {"$set": {"value": api_key}},
-                upsert=True
-            )
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", 
+                          ("gemini_api_key", api_key))
+            conn.commit()
+            conn.close()
             
         return True, "Success"
     except Exception as e:
@@ -94,12 +129,25 @@ def index():
 @app.route('/api/tasks', methods=['GET'])
 def get_tasks():
     try:
-        tasks = list(tasks_collection.find({}))
-        # Convert ObjectId to string for JSON serialization
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM tasks")
+        tasks = cursor.fetchall()
+        conn.close()
+        
+        # Convert to list of dicts
+        tasks_list = []
         for task in tasks:
-            task['id'] = str(task['_id'])
-            del task['_id']
-        return jsonify(tasks)
+            tasks_list.append({
+                "id": task["id"],
+                "title": task["title"],
+                "completed": bool(task["completed"]),
+                "category": task["category"],
+                "priority": task["priority"],
+                "due_date": task["due_date"],
+                "description": task["description"]
+            })
+        return jsonify(tasks_list)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -110,25 +158,34 @@ def create_task():
         return jsonify({"error": "Title is required"}), 400
         
     try:
-        new_task = {
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO tasks (title, completed, category, priority, due_date, description, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            data['title'],
+            0,
+            data.get('category', 'general'),
+            data.get('priority', 'medium'),
+            data.get('due_date', None),
+            data.get('description', ''),
+            data.get('created_at', None)
+        ))
+        
+        task_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            "id": task_id,
             "title": data['title'],
             "completed": False,
             "category": data.get('category', 'general'),
             "priority": data.get('priority', 'medium'),
             "due_date": data.get('due_date', None),
-            "description": data.get('description', ''),
-            "created_at": data.get('created_at', None)
-        }
-        result = tasks_collection.insert_one(new_task)
-        
-        return jsonify({
-            "id": str(result.inserted_id),
-            "title": new_task['title'],
-            "completed": False,
-            "category": new_task['category'],
-            "priority": new_task['priority'],
-            "due_date": new_task['due_date'],
-            "description": new_task['description']
+            "description": data.get('description', '')
         }), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -136,33 +193,44 @@ def create_task():
 @app.route('/api/tasks/<task_id>', methods=['PATCH'])
 def update_task(task_id):
     data = request.json
-    update_fields = {}
+    update_fields = []
+    update_values = []
     
     if 'completed' in data:
-        update_fields['completed'] = bool(data['completed'])
+        update_fields.append("completed = ?")
+        update_values.append(1 if data['completed'] else 0)
     if 'title' in data:
-        update_fields['title'] = data['title']
+        update_fields.append("title = ?")
+        update_values.append(data['title'])
     if 'category' in data:
-        update_fields['category'] = data['category']
+        update_fields.append("category = ?")
+        update_values.append(data['category'])
     if 'priority' in data:
-        update_fields['priority'] = data['priority']
+        update_fields.append("priority = ?")
+        update_values.append(data['priority'])
     if 'due_date' in data:
-        update_fields['due_date'] = data['due_date']
+        update_fields.append("due_date = ?")
+        update_values.append(data['due_date'])
     if 'description' in data:
-        update_fields['description'] = data['description']
+        update_fields.append("description = ?")
+        update_values.append(data['description'])
         
     if not update_fields:
         return jsonify({"error": "No update fields provided"}), 400
         
     try:
-        result = tasks_collection.update_one(
-            {"_id": ObjectId(task_id)},
-            {"$set": update_fields}
-        )
+        update_values.append(task_id)
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        if result.matched_count == 0:
+        cursor.execute(f"UPDATE tasks SET {', '.join(update_fields)} WHERE id = ?", update_values)
+        
+        if cursor.rowcount == 0:
+            conn.close()
             return jsonify({"error": "Task not found"}), 404
             
+        conn.commit()
+        conn.close()
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -170,11 +238,16 @@ def update_task(task_id):
 @app.route('/api/tasks/<task_id>', methods=['DELETE'])
 def delete_task(task_id):
     try:
-        result = tasks_collection.delete_one({"_id": ObjectId(task_id)})
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         
-        if result.deleted_count == 0:
+        if cursor.rowcount == 0:
+            conn.close()
             return jsonify({"error": "Task not found"}), 404
             
+        conn.commit()
+        conn.close()
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -223,11 +296,21 @@ def chat():
 @app.route('/api/notes', methods=['GET'])
 def get_notes():
     try:
-        notes = list(notes_collection.find({}).sort("updated_at", -1))
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM notes ORDER BY id DESC")
+        notes = cursor.fetchall()
+        conn.close()
+        
+        notes_list = []
         for note in notes:
-            note['id'] = str(note['_id'])
-            del note['_id']
-        return jsonify(notes)
+            notes_list.append({
+                "id": note["id"],
+                "title": note["title"],
+                "content": note["content"],
+                "color": note["color"]
+            })
+        return jsonify(notes_list)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -238,20 +321,29 @@ def create_note():
         return jsonify({"error": "Title is required"}), 400
         
     try:
-        new_note = {
-            "title": data['title'],
-            "content": data.get('content', ''),
-            "color": data.get('color', '#6366f1'),
-            "created_at": data.get('created_at', None),
-            "updated_at": data.get('updated_at', None)
-        }
-        result = notes_collection.insert_one(new_note)
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO notes (title, content, color, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            data['title'],
+            data.get('content', ''),
+            data.get('color', '#6366f1'),
+            data.get('created_at', None),
+            data.get('updated_at', None)
+        ))
+        
+        note_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
         
         return jsonify({
-            "id": str(result.inserted_id),
-            "title": new_note['title'],
-            "content": new_note['content'],
-            "color": new_note['color']
+            "id": note_id,
+            "title": data['title'],
+            "content": data.get('content', ''),
+            "color": data.get('color', '#6366f1')
         }), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -259,27 +351,35 @@ def create_note():
 @app.route('/api/notes/<note_id>', methods=['PATCH'])
 def update_note(note_id):
     data = request.json
-    update_fields = {}
+    update_fields = []
+    update_values = []
     
     if 'title' in data:
-        update_fields['title'] = data['title']
+        update_fields.append("title = ?")
+        update_values.append(data['title'])
     if 'content' in data:
-        update_fields['content'] = data['content']
+        update_fields.append("content = ?")
+        update_values.append(data['content'])
     if 'color' in data:
-        update_fields['color'] = data['color']
+        update_fields.append("color = ?")
+        update_values.append(data['color'])
         
     if not update_fields:
         return jsonify({"error": "No update fields provided"}), 400
         
     try:
-        result = notes_collection.update_one(
-            {"_id": ObjectId(note_id)},
-            {"$set": update_fields}
-        )
+        update_values.append(note_id)
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        if result.matched_count == 0:
+        cursor.execute(f"UPDATE notes SET {', '.join(update_fields)} WHERE id = ?", update_values)
+        
+        if cursor.rowcount == 0:
+            conn.close()
             return jsonify({"error": "Note not found"}), 404
             
+        conn.commit()
+        conn.close()
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -287,11 +387,16 @@ def update_note(note_id):
 @app.route('/api/notes/<note_id>', methods=['DELETE'])
 def delete_note(note_id):
     try:
-        result = notes_collection.delete_one({"_id": ObjectId(note_id)})
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM notes WHERE id = ?", (note_id,))
         
-        if result.deleted_count == 0:
+        if cursor.rowcount == 0:
+            conn.close()
             return jsonify({"error": "Note not found"}), 404
             
+        conn.commit()
+        conn.close()
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -338,47 +443,58 @@ JSON:"""
             task_data = json.loads(json_match.group())
             
             # Create the task in database
-            new_task = {
-                "title": task_data.get('title', prompt),
-                "completed": False,
-                "category": task_data.get('category', 'general'),
-                "priority": task_data.get('priority', 'medium'),
-                "due_date": task_data.get('due_date'),
-                "description": task_data.get('description', ''),
-                "created_at": data.get('created_at', None)
-            }
-            result = tasks_collection.insert_one(new_task)
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO tasks (title, completed, category, priority, due_date, description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                task_data.get('title', prompt),
+                0,
+                task_data.get('category', 'general'),
+                task_data.get('priority', 'medium'),
+                task_data.get('due_date'),
+                task_data.get('description', ''),
+                data.get('created_at', None)
+            ))
+            
+            task_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
             
             return jsonify({
                 "success": True,
                 "task": {
-                    "id": str(result.inserted_id),
-                    "title": new_task['title'],
-                    "category": new_task['category'],
-                    "priority": new_task['priority'],
-                    "due_date": new_task['due_date'],
-                    "description": new_task['description']
+                    "id": task_id,
+                    "title": task_data.get('title', prompt),
+                    "category": task_data.get('category', 'general'),
+                    "priority": task_data.get('priority', 'medium'),
+                    "due_date": task_data.get('due_date'),
+                    "description": task_data.get('description', '')
                 }
             })
         else:
             # Fallback: create simple task
-            new_task = {
-                "title": prompt,
-                "completed": False,
-                "category": "general",
-                "priority": "medium",
-                "due_date": None,
-                "description": ""
-            }
-            result = tasks_collection.insert_one(new_task)
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO tasks (title, completed, category, priority, due_date, description, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (prompt, 0, 'general', 'medium', None, '', data.get('created_at', None)))
+            
+            task_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
             
             return jsonify({
                 "success": True,
                 "task": {
-                    "id": str(result.inserted_id),
-                    "title": new_task['title'],
-                    "category": new_task['category'],
-                    "priority": new_task['priority']
+                    "id": task_id,
+                    "title": prompt,
+                    "category": "general",
+                    "priority": "medium"
                 }
             })
             
@@ -390,5 +506,5 @@ if __name__ == '__main__':
     auto_init_ai()
     # Use the PORT environment variable if available (for hosting)
     port = int(os.environ.get("PORT", 5000))
-    print(f"Starting MongoDB-Powered Life OS on port {port}...")
-    app.run(debug=False, host='0.0.0.0', port=port)
+    print(f"Starting Life OS on port {port}...")
+    app.run(debug=True, host='0.0.0.0', port=port)
