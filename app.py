@@ -12,7 +12,13 @@ app = Flask(__name__)
 CORS(app)
 
 # Database configuration
-DB_PATH = os.path.join(os.path.dirname(__file__), 'life_os.db')
+# Use persistent disk on Render, or local file for development
+if os.environ.get('RENDER'):
+    DB_PATH = '/var/data/life_os.db'
+    # Ensure the directory exists
+    os.makedirs('/var/data', exist_ok=True)
+else:
+    DB_PATH = os.path.join(os.path.dirname(__file__), 'life_os.db')
 
 # ==========================================
 # SQLite Database Initialization
@@ -506,5 +512,6 @@ if __name__ == '__main__':
     auto_init_ai()
     # Use the PORT environment variable if available (for hosting)
     port = int(os.environ.get("PORT", 5000))
+    debug_mode = not os.environ.get('RENDER')
     print(f"Starting Life OS on port {port}...")
-    app.run(debug=True, host='0.0.0.0', port=port)
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)

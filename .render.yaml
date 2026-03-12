@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: life-os
+    env: python
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: RENDER=1 gunicorn app:app
+    disk:
+      name: life-os-data
+      mountPath: /var/data
+      sizeGB: 1
